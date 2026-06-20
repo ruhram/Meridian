@@ -346,6 +346,8 @@ const toolMap = {
       maxMcap: ["screening", "maxMcap"],
       minBinStep: ["screening", "minBinStep"],
       maxBinStep: ["screening", "maxBinStep"],
+      maxVolatility: ["screening", "maxVolatility"],
+      minVolatility: ["screening", "minVolatility"],
       timeframe: ["screening", "timeframe"],
       category: ["screening", "category"],
       minTokenFeesSol: ["screening", "minTokenFeesSol"],

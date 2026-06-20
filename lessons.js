@@ -357,12 +357,37 @@ export function evolveThresholds(perfData, config) {
     }
   }
 
+  // ── 1b. minVolatility ────────────────────────────────────────
+  // If winners cluster above a volatility floor → raise the minimum.
+  // Low volatility = dead volume, no fees earned.
+  {
+    const winnerVols = winners.map((p) => p.volatility).filter(isFiniteNum);
+    const loserVols  = losers.map((p) => p.volatility).filter(isFiniteNum);
+    const current    = config.screening.minVolatility ?? 0;
+
+    if (winnerVols.length >= 3 && loserVols.length >= 2) {
+      const winnerP25 = percentile(winnerVols, 25);
+      const loserMedian = percentile(loserVols, 50);
+
+      // If winners' low end is higher than losers' median → losers are in dead-vol pools
+      if (winnerP25 > loserMedian && winnerP25 > current) {
+        const target  = winnerP25 * 0.9; // small buffer below winner floor
+        const newVal  = clamp(nudge(current, target, MAX_CHANGE_PER_STEP), 0, 5.0);
+        const rounded = Number(newVal.toFixed(2));
+        if (rounded > current) {
+          changes.minVolatility = rounded;
+          rationale.minVolatility = `Winners floor vol ~${winnerP25.toFixed(2)}, loser median ~${loserMedian.toFixed(2)} — raised min from ${current} → ${rounded}`;
+        }
+      }
+    }
+  }
+
   // ── 2. minFeeTvlRatio ─────────────────────────────────────────
   // Raise the floor if low-fee pools consistently underperform.
   {
     const winnerFees = winners.map((p) => p.fee_tvl_ratio).filter(isFiniteNum);
     const loserFees  = losers.map((p) => p.fee_tvl_ratio).filter(isFiniteNum);
-    const current    = config.screening.minFeeTvlRatio;
+    const current    = config.screening.minFeeActiveTvlRatio;
 
     if (winnerFees.length >= 2) {
       // Minimum fee/TVL among winners — we know pools below this don't work for us
@@ -372,8 +397,8 @@ export function evolveThresholds(perfData, config) {
         const newVal  = clamp(nudge(current, target, MAX_CHANGE_PER_STEP), 0.05, 10.0);
         const rounded = Number(newVal.toFixed(2));
         if (rounded > current) {
-          changes.minFeeTvlRatio = rounded;
-          rationale.minFeeTvlRatio = `Lowest winner fee_tvl=${minWinnerFee.toFixed(2)} — raised floor from ${current} → ${rounded}`;
+          changes.minFeeActiveTvlRatio = rounded;
+          rationale.minFeeActiveTvlRatio = `Lowest winner fee_tvl=${minWinnerFee.toFixed(2)} — raised floor from ${current} → ${rounded}`;
         }
       }
     }
@@ -388,9 +413,9 @@ export function evolveThresholds(perfData, config) {
           const target  = maxLoserFee * 1.2;
           const newVal  = clamp(nudge(current, target, MAX_CHANGE_PER_STEP), 0.05, 10.0);
           const rounded = Number(newVal.toFixed(2));
-          if (rounded > current && !changes.minFeeTvlRatio) {
-            changes.minFeeTvlRatio = rounded;
-            rationale.minFeeTvlRatio = `Losers had fee_tvl<=${maxLoserFee.toFixed(2)}, winners higher — raised floor from ${current} → ${rounded}`;
+          if (rounded > current && !changes.minFeeActiveTvlRatio) {
+            changes.minFeeActiveTvlRatio = rounded;
+            rationale.minFeeActiveTvlRatio = `Losers had fee_tvl<=${maxLoserFee.toFixed(2)}, winners higher — raised floor from ${current} → ${rounded}`;
           }
         }
       }
@@ -438,7 +463,8 @@ export function evolveThresholds(perfData, config) {
   // Apply to live config object immediately
   const s = config.screening;
   if (changes.maxVolatility    != null) s.maxVolatility    = changes.maxVolatility;
-  if (changes.minFeeTvlRatio   != null) s.minFeeTvlRatio   = changes.minFeeTvlRatio;
+  if (changes.minVolatility        != null) s.minVolatility        = changes.minVolatility;
+  if (changes.minFeeActiveTvlRatio != null) s.minFeeActiveTvlRatio = changes.minFeeActiveTvlRatio;
   if (changes.minOrganic       != null) s.minOrganic       = changes.minOrganic;
 
   // Log a lesson summarizing the evolution
